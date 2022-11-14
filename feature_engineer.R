@@ -1,11 +1,13 @@
 library(bizdays)
 library(fastDummies)
+library(arrow)
+library(tidyverse)
 
 # Import raw data from SQL query
 df_raw = read_parquet("sla_v2.pq")
 
 # Preprocess the raw data
-df_preprocess = df_raw %>% 
+df_preprocess = df_raw %>% filter(prior_flag == 1) %>%
   filter(
   fm_duration_minutes > 0, 
   mm1_duration_minutes > 0, 
@@ -69,4 +71,10 @@ df_processed = df_preprocess %>%
   dummy_cols(remove_first_dummy = TRUE,
   remove_selected_columns = TRUE)
 
-df_processed %>% write_parquet("processed.pq")
+df_processed %>% write_parquet("processed_prior.pq")
+
+
+
+
+
+
