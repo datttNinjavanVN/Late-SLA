@@ -1,0 +1,175 @@
+import pandas as pd
+import pyarrow
+from sklearn.linear_model import LogisticRegression
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+from sklearn.metrics import roc_auc_score
+import warnings
+warnings.filterwarnings("ignore")
+pd.set_option('display.max_columns', None)
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import seaborn as sns
+import json
+import re
+import lightgbm as lgb
+from datetime import timedelta
+from typing import Tuple
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.metrics import accuracy_score, recall_score, precision_score
+from sklearn.metrics import f1_score, confusion_matrix, classification_report
+from imblearn.over_sampling import SMOTE
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from imblearn.pipeline import Pipeline as Imbpipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import VotingClassifier, StackingClassifier
+from xgboost import XGBClassifier
+from catboost import CatBoostClassifier
+
+df = pd.read_parquet("processed_prior.pq")
+
+model_features = list(set(df.columns).difference({"not_late"}))
+target = ["not_late"]
+
+X = df[model_features]
+y = df[target]
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=1, stratify=y)
+X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=0.3, random_state=1, stratify=y_train)
+
+def run_list_models(X_train, y_train, X_valid, y_valid, 
+                    list_models=[], list_name_models=[], preprocessor='', 
+                    resampling_technique=None, have_resample=True):
+    """Train and return results of models.
+
+    Args: 
+        X_train, X_valid: data used for training and validation.
+        y_train, y_valid: actual labels of training and validation datasets.
+        list_models: list of models.
+        list_name_models: list name of models.
+        resampling_technique: resampling technique.
+        have_resample: whether to resample the data or not, boolean.
+
+    Return:
+        table containing scores of models.
+    """
+    score_dict = {
+        'f1_train': [],
+        'f1_valid': [],
+        'recall_train': [],
+        'recall_valid': [],
+        'precision_train': [],
+        'precision_valid': [],
+        'accuracy_train': [],
+        'accuracy_valid': []
+    }
+
+    for model in list_models:
+        if (have_resample == True) & (resampling_technique != None):
+            # Training pipeline
+            completed_pl = Imbpipeline(
+                steps=[
+                    ('preprocessor', preprocessor),
+                    ('resampling_technique', resampling_technique),
+                    ('model', model)
+                ]
+            )
+            # Train model
+            completed_pl.fit(X_train, y_train)
+            # Prediction
+            y_train_hat = completed_pl.predict(X_train)
+            y_valid_hat = completed_pl.predict(X_valid)
+            # Add evaluation results to 'score_dict'
+            score_dict['f1_train'].append(f1_score(y_train, y_train_hat))
+            score_dict['f1_valid'].append(f1_score(y_valid, y_valid_hat))
+            score_dict['recall_train'].append(recall_score(y_train, y_train_hat))
+            score_dict['recall_valid'].append(recall_score(y_valid, y_valid_hat))
+            score_dict['precision_train'].append(precision_score(y_train, y_train_hat))
+            score_dict['precision_valid'].append(precision_score(y_valid, y_valid_hat))
+            score_dict['accuracy_train'].append(accuracy_score(y_train, y_train_hat))
+            score_dict['accuracy_valid'].append(accuracy_score(y_valid, y_valid_hat))
+            
+        else:
+            #Training pipeline
+            # completed_pl = Pipeline(
+            #     steps=[
+            #         ('preprocessor', preprocessor),
+            #         ('model', model)
+            #     ]
+            # )
+            completed_pl = model
+            # Train model
+            completed_pl.fit(X_train, y_train)
+
+            # Prediction
+            y_train_hat = completed_pl.predict(X_train)
+            y_valid_hat = completed_pl.predict(X_valid)
+            
+            # Add evaluation results to 'score_dict'
+            score_dict['f1_train'].append(f1_score(y_train, y_train_hat))
+            score_dict['f1_valid'].append(f1_score(y_valid, y_valid_hat))
+            score_dict['recall_train'].append(recall_score(y_train, y_train_hat))
+            score_dict['recall_valid'].append(recall_score(y_valid, y_valid_hat))
+            score_dict['precision_train'].append(precision_score(y_train, y_train_hat))
+            score_dict['precision_valid'].append(precision_score(y_valid, y_valid_hat))
+            score_dict['accuracy_train'].append(accuracy_score(y_train, y_train_hat))
+            score_dict['accuracy_valid'].append(accuracy_score(y_valid, y_valid_hat))
+        
+    score_df = pd.DataFrame(score_dict)
+    score_df.insert (0, 'model', list_name_models)
+    score_df = score_df.sort_values('f1_valid', ascending=False)
+    score_df.reset_index(drop=True, inplace=True)
+    return score_df
+
+list_models = [
+    LogisticRegression(random_state=0),
+    KNeighborsClassifier(),
+    DecisionTreeClassifier(random_state=0),
+    SVC(probability=True, random_state=0),
+    RandomForestClassifier(random_state=0),
+    AdaBoostClassifier(random_state=0),
+    GradientBoostingClassifier(random_state=0),
+    XGBClassifier(random_state=0),
+    CatBoostClassifier(verbose=False, eval_metric='F1', random_state=0),
+    lgb.LGBMClassifier(random_state=0),
+    MLPClassifier(random_state=0)
+]
+
+list_name_models = [
+    'LogisticRegression',
+    'KNeighborsClassifier',
+    'DecisionTreeClassifier',
+    'SVM',
+    'RandomForestClassifier',
+    'AdaBoostClassifier',
+    'GradientBoostingClassifier',
+    'XGBClassifier',
+    'MLPClassifier',
+    'LGBMClassifier',
+    'CatBoostClassifier'
+]
+
+score_df = run_list_models(
+    X_train, y_train,
+    X_valid, y_valid,
+    list_models=list_models,
+    list_name_models=list_name_models,
+    # preprocessor=preprocessor,
+    have_resample=False
+)
+
+print(score_df)
+
