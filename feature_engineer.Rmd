@@ -1,0 +1,95 @@
+```{r}
+library(bizdays)
+
+df_raw = read_parquet("sla_v2.pq")
+
+df_preprocess = df_raw %>% filter(
+  fm_duration_minutes > 0, 
+  mm1_duration_minutes > 0, 
+  mm2_duration_minutes > 0, 
+  mm3_duration_minutes > 0)  %>% 
+  mutate(not_late = 1 - act_late,
+         sla_days = bizdays(as.Date(sla_date), as.Date(start_clock_date)),
+         fm_duration_hours = round(fm_duration_minutes/60,0), 
+         mm1_duration_hours = round(mm1_duration_minutes/60,0), 
+         mm2_duration_hours = round(mm2_duration_minutes/60,0), 
+         mm3_duration_hours = round(mm3_duration_minutes/60,0),
+         mm_duration_hours = round(total_mm_duration_minutes/60,0)) %>% 
+  select(-act_late,
+         -fm_duration_minutes, 
+         -mm1_duration_minutes, 
+         -mm2_duration_minutes, 
+         -mm3_duration_minutes,
+         -total_mm_duration_minutes,
+         -granular_status,
+         -est_lm_duration_minutes)
+```
+
+```{r}
+library(arrow)
+library(tidyverse)
+library(Information)
+
+df_input = df_preprocess %>% select(-created_month,-contains("id"),-contains("date"),-contains("name"))
+
+map(c("prior_flag","bkk_tag","bulky_flag"), ~df_input %>% 
+      group_by(.data[[.x]], not_late) %>% 
+      count %>% 
+      ungroup %>% 
+      group_by(.data[[.x]]) %>% 
+      mutate(freq =n/sum(n)))
+```
+
+```{r}
+df_prior = df_input %>% 
+  filter(prior_flag == 1)
+```
+
+```{r}
+cat = sapply(df_prior %>% 
+               select(-not_late), function(x) n_distinct(x)) %>%
+  sort %>%
+  .[.<10] %>%
+  names
+
+num = sapply(df_prior %>% 
+               select(-not_late), function(x) n_distinct(x)) %>%
+  sort %>%
+  .[.>=10] %>%
+  names
+
+list(cat,num)
+```
+
+```{r}
+IV <- create_infotables(data=df_prior %>% 
+                          select(not_late, 
+                                 cat, 
+                                 num), 
+                        y="not_late", 
+                        parallel=FALSE)
+
+IV$Summary
+```
+
+```{r}
+variables_selected = IV$Summary %>% filter(IV > 0.02) %>% select(Variable) %>% pull
+
+variables_selected = c("total_duration_days", "mm_duration_hours", "mm2_duration_hours", "dest_sector", "dest_area", "rts_flag", "mm3_duration_hours", "sla_days", "origin_sector", "fm_duration_hours", "sales_channel", "no_of_hub_movement", "route_type", "bkk_tag")
+```
+
+```{r}
+IV_selected <- create_infotables(data=df_prior %>% 
+                          select(not_late,variables_selected), 
+                        y="not_late", 
+                        parallel=FALSE)
+
+IV_selected$Summary
+```
+```{r}
+map(variables_selected,~plot_infotables(IV_selected,.x))
+```
+
+```{r}
+IV_selected$Tables
+```
