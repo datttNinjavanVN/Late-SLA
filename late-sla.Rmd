@@ -1,3 +1,112 @@
+# Clean Raw Data
+
+```{r}
+library(bizdays)
+library(fastDummies)
+library(arrow)
+library(tidyverse)
+library(Information)
+library(reticulate)
+
+# Import raw data from SQL query
+df_raw = read_parquet("sla_v2.pq")
+
+# Keep meaningful observations and transform duration into hours
+df = df_raw %>% 
+  filter(
+  fm_duration_minutes > 0, 
+  mm1_duration_minutes > 0, 
+  mm2_duration_minutes > 0, 
+  mm3_duration_minutes > 0)  %>%
+  filter(total_duration_days > 1) %>%
+  mutate(not_late = 1 - act_late,
+         sla_days = bizdays(as.Date(start_clock_date), as.Date(sla_date)),
+         fm_duration_hours = round(fm_duration_minutes/60,0), 
+         mm1_duration_hours = round(mm1_duration_minutes/60,0), 
+         mm2_duration_hours = round(mm2_duration_minutes/60,0), 
+         mm3_duration_hours = round(mm3_duration_minutes/60,0),
+         mm_duration_hours = round(total_mm_duration_minutes/60,0)) %>%
+    select(-act_late,
+         -fm_duration_minutes, 
+         -mm1_duration_minutes, 
+         -mm2_duration_minutes, 
+         -mm3_duration_minutes,
+         -mm1_duration_hours, 
+         -mm2_duration_hours, 
+         -mm3_duration_hours,
+         -total_mm_duration_minutes,
+         -granular_status,
+         -created_month,
+         -contains("id"),
+         -contains("date"),
+         -contains("name"),
+         -total_duration_days)
+
+df %>% write_parquet("df.pq")
+
+df %>% glimpse
+```
+
+# Understand the data
+
+## Data fields and formats
+
+```{python}
+import pyarrow
+import pandas as pd
+import warnings
+warnings.filterwarnings("ignore")
+pd.set_option('display.max_columns', None)
+
+df = pd.read_parquet("df.pq")
+df.info()
+```
+
+```{python}
+df.not_late.value_counts().values.tolist()
+df.dropna().not_late.value_counts().values.tolist()
+```
+
+```{python}
+df = df.dropna()
+```
+
+# WOE and IV
+
+## Filter Categories and Select Columns
+
+```{r}
+library(tidyverse)
+library(reticulate)
+df = py$df
+
+library(Information)
+
+IV <- create_infotables(data= df, 
+                        y="not_late", 
+                        parallel=FALSE)
+IV$Summary
+```
+
+```{r}
+IV$Tables$sla_days
+```
+
+```{r}
+df_1 = df %>% filter(sla_days <= 3)
+df_1 %>% select(not_late) %>% table %>% prop.table
+```
+
+```{r}
+IV <- create_infotables(data= df_1, 
+                        y="not_late", 
+                        parallel=FALSE)
+IV$Summary
+
+IV$Tables$route_type
+```
+
+```{python}
 import pandas as pd
 import pyarrow
 from sklearn.linear_model import LogisticRegression
@@ -39,7 +148,7 @@ from sklearn.ensemble import VotingClassifier, StackingClassifier
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
 
-df = pd.read_parquet("df_processed.pq")
+df = r.df_1
 
 model_features = list(set(df.columns).difference({"not_late"}))
 target = ["not_late"]
@@ -49,12 +158,13 @@ y = df[target]
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=1, stratify=y)
 X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=0.3, random_state=1, stratify=y_train)
+```
 
-def run_list_models(X_train, y_train, X_valid, y_valid, X_test, y_test,
+```{python}
+def run_list_models(X_train, y_train, X_valid, y_valid, 
                     list_models=[], list_name_models=[], preprocessor='', 
                     resampling_technique=None, have_resample=True):
     """Train and return results of models.
-
     Args: 
         X_train, X_valid: data used for training and validation.
         y_train, y_valid: actual labels of training and validation datasets.
@@ -62,23 +172,18 @@ def run_list_models(X_train, y_train, X_valid, y_valid, X_test, y_test,
         list_name_models: list name of models.
         resampling_technique: resampling technique.
         have_resample: whether to resample the data or not, boolean.
-
     Return:
         table containing scores of models.
     """
     score_dict = {
         'f1_train': [],
         'f1_valid': [],
-        'f1_test': [],
         'recall_train': [],
         'recall_valid': [],
-        'recall_test': [],
         'precision_train': [],
         'precision_valid': [],
-        'precision_test': [],
         'accuracy_train': [],
-        'accuracy_valid': [],
-        'accuracy_test': []
+        'accuracy_valid': []
     }
 
     for model in list_models:
@@ -96,20 +201,16 @@ def run_list_models(X_train, y_train, X_valid, y_valid, X_test, y_test,
             # Prediction
             y_train_hat = completed_pl.predict(X_train)
             y_valid_hat = completed_pl.predict(X_valid)
-            y_test_hat = completed_pl.predict(X_test)
             # Add evaluation results to 'score_dict'
             score_dict['f1_train'].append(f1_score(y_train, y_train_hat))
             score_dict['f1_valid'].append(f1_score(y_valid, y_valid_hat))
-            score_dict['f1_test'].append(f1_score(y_test, y_test_hat))
             score_dict['recall_train'].append(recall_score(y_train, y_train_hat))
             score_dict['recall_valid'].append(recall_score(y_valid, y_valid_hat))
-            score_dict['recall_test'].append(recall_score(y_test, y_test_hat))
             score_dict['precision_train'].append(precision_score(y_train, y_train_hat))
             score_dict['precision_valid'].append(precision_score(y_valid, y_valid_hat))
-            score_dict['precision_test'].append(precision_score(y_test, y_test_hat))
             score_dict['accuracy_train'].append(accuracy_score(y_train, y_train_hat))
             score_dict['accuracy_valid'].append(accuracy_score(y_valid, y_valid_hat))
-            score_dict['accuracy_test'].append(accuracy_score(y_test, y_test_hat))
+            
         else:
             #Training pipeline
             # completed_pl = Pipeline(
@@ -129,16 +230,12 @@ def run_list_models(X_train, y_train, X_valid, y_valid, X_test, y_test,
             # Add evaluation results to 'score_dict'
             score_dict['f1_train'].append(f1_score(y_train, y_train_hat))
             score_dict['f1_valid'].append(f1_score(y_valid, y_valid_hat))
-            score_dict['f1_test'].append(f1_score(y_test, y_test_hat))
             score_dict['recall_train'].append(recall_score(y_train, y_train_hat))
             score_dict['recall_valid'].append(recall_score(y_valid, y_valid_hat))
-            score_dict['recall_test'].append(recall_score(y_test, y_test_hat))
             score_dict['precision_train'].append(precision_score(y_train, y_train_hat))
             score_dict['precision_valid'].append(precision_score(y_valid, y_valid_hat))
-            score_dict['precision_test'].append(precision_score(y_test, y_test_hat))
             score_dict['accuracy_train'].append(accuracy_score(y_train, y_train_hat))
             score_dict['accuracy_valid'].append(accuracy_score(y_valid, y_valid_hat))
-            score_dict['accuracy_test'].append(accuracy_score(y_test, y_test_hat))
         
     score_df = pd.DataFrame(score_dict)
     score_df.insert (0, 'model', list_name_models)
@@ -184,3 +281,82 @@ score_df = run_list_models(
 )
 
 print(score_df)
+```
+
+```{python}
+import pandas as pd
+import pyarrow
+from sklearn.linear_model import LogisticRegression
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+from sklearn.metrics import roc_auc_score
+import warnings
+warnings.filterwarnings("ignore")
+pd.set_option('display.max_columns', None)
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import seaborn as sns
+import json
+import re
+import lightgbm as lgb
+from datetime import timedelta
+from typing import Tuple
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.metrics import accuracy_score, recall_score, precision_score
+from sklearn.metrics import f1_score, confusion_matrix, classification_report
+from imblearn.over_sampling import SMOTE
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from imblearn.pipeline import Pipeline as Imbpipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import VotingClassifier, StackingClassifier
+from xgboost import XGBClassifier
+from catboost import CatBoostClassifier
+
+pred_label = lgb.LGBMClassifier(random_state=0).fit(X_train, y_train).predict(X_test)
+
+model = CatBoostClassifier(verbose=False, eval_metric='F1', random_state=0).fit(X_train, y_train)
+
+def tunning_threshold(y_valid, y_hat_proba, thresholds):
+    """Find optimal threshold F1-Score.
+    Args: 
+        y_valid: true label.
+        y_hat_proba: probability of label.
+        thresholds: list of thresholds.
+    Return:
+        optimal threshold.
+    """
+    list_scores = []
+    for t in thresholds:
+        y_hat = (y_hat_proba >= t).astype('int')
+        list_scores.append(f1_score(y_valid, y_hat))
+    index = np.argmax(list_scores)
+    print(f'Threshold = {thresholds[index]:.3f}, F1-Score = {list_scores[index]:.5f}')
+    return thresholds[index]
+
+y_valid_hat_RF_proba = RF_model.predict_proba(X_valid)
+
+optimal_threshold_smote = tunning_threshold(
+    y_valid, y_valid_hat_RF_proba[:,1], 
+    thresholds = np.arange(0, 1, 0.001)
+)
+
+y_test_hat_RF_proba = model.predict_proba(X_test)
+
+y_test_hat_RF = (y_test_hat_RF_proba[:,1] >= optimal_threshold_smote).astype(int)
+print(classification_report(y_test, y_test_hat_RF))
+print(classification_report(y_test, pred_label))
+```
+

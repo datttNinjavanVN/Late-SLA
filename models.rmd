@@ -39,7 +39,7 @@ from sklearn.ensemble import VotingClassifier, StackingClassifier
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
 
-df = pd.read_parquet("df_processed.pq")
+df = r.df_1
 
 model_features = list(set(df.columns).difference({"not_late"}))
 target = ["not_late"]
@@ -50,11 +50,10 @@ y = df[target]
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=1, stratify=y)
 X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=0.3, random_state=1, stratify=y_train)
 
-def run_list_models(X_train, y_train, X_valid, y_valid, X_test, y_test,
+def run_list_models(X_train, y_train, X_valid, y_valid, 
                     list_models=[], list_name_models=[], preprocessor='', 
                     resampling_technique=None, have_resample=True):
     """Train and return results of models.
-
     Args: 
         X_train, X_valid: data used for training and validation.
         y_train, y_valid: actual labels of training and validation datasets.
@@ -62,23 +61,18 @@ def run_list_models(X_train, y_train, X_valid, y_valid, X_test, y_test,
         list_name_models: list name of models.
         resampling_technique: resampling technique.
         have_resample: whether to resample the data or not, boolean.
-
     Return:
         table containing scores of models.
     """
     score_dict = {
         'f1_train': [],
         'f1_valid': [],
-        'f1_test': [],
         'recall_train': [],
         'recall_valid': [],
-        'recall_test': [],
         'precision_train': [],
         'precision_valid': [],
-        'precision_test': [],
         'accuracy_train': [],
-        'accuracy_valid': [],
-        'accuracy_test': []
+        'accuracy_valid': []
     }
 
     for model in list_models:
@@ -96,20 +90,16 @@ def run_list_models(X_train, y_train, X_valid, y_valid, X_test, y_test,
             # Prediction
             y_train_hat = completed_pl.predict(X_train)
             y_valid_hat = completed_pl.predict(X_valid)
-            y_test_hat = completed_pl.predict(X_test)
             # Add evaluation results to 'score_dict'
             score_dict['f1_train'].append(f1_score(y_train, y_train_hat))
             score_dict['f1_valid'].append(f1_score(y_valid, y_valid_hat))
-            score_dict['f1_test'].append(f1_score(y_test, y_test_hat))
             score_dict['recall_train'].append(recall_score(y_train, y_train_hat))
             score_dict['recall_valid'].append(recall_score(y_valid, y_valid_hat))
-            score_dict['recall_test'].append(recall_score(y_test, y_test_hat))
             score_dict['precision_train'].append(precision_score(y_train, y_train_hat))
             score_dict['precision_valid'].append(precision_score(y_valid, y_valid_hat))
-            score_dict['precision_test'].append(precision_score(y_test, y_test_hat))
             score_dict['accuracy_train'].append(accuracy_score(y_train, y_train_hat))
             score_dict['accuracy_valid'].append(accuracy_score(y_valid, y_valid_hat))
-            score_dict['accuracy_test'].append(accuracy_score(y_test, y_test_hat))
+            
         else:
             #Training pipeline
             # completed_pl = Pipeline(
@@ -129,16 +119,12 @@ def run_list_models(X_train, y_train, X_valid, y_valid, X_test, y_test,
             # Add evaluation results to 'score_dict'
             score_dict['f1_train'].append(f1_score(y_train, y_train_hat))
             score_dict['f1_valid'].append(f1_score(y_valid, y_valid_hat))
-            score_dict['f1_test'].append(f1_score(y_test, y_test_hat))
             score_dict['recall_train'].append(recall_score(y_train, y_train_hat))
             score_dict['recall_valid'].append(recall_score(y_valid, y_valid_hat))
-            score_dict['recall_test'].append(recall_score(y_test, y_test_hat))
             score_dict['precision_train'].append(precision_score(y_train, y_train_hat))
             score_dict['precision_valid'].append(precision_score(y_valid, y_valid_hat))
-            score_dict['precision_test'].append(precision_score(y_test, y_test_hat))
             score_dict['accuracy_train'].append(accuracy_score(y_train, y_train_hat))
             score_dict['accuracy_valid'].append(accuracy_score(y_valid, y_valid_hat))
-            score_dict['accuracy_test'].append(accuracy_score(y_test, y_test_hat))
         
     score_df = pd.DataFrame(score_dict)
     score_df.insert (0, 'model', list_name_models)

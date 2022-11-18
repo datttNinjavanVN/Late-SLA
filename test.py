@@ -39,27 +39,7 @@ from sklearn.ensemble import VotingClassifier, StackingClassifier
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
 
-df = pd.read_parquet("df_1.pq")
+df = pd.read_parquet("df_processed.pq")
 
 model_features = list(set(df.columns).difference({"not_late"}))
 target = ["not_late"]
-
-X = df[model_features]
-y = df[target]
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=1, stratify=y)
-X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=0.3, random_state=1, stratify=y_train)
-
-model_features = list(set(df.columns).difference({"not_late"}))
-target = ["not_late"]
-
-X = df[model_features]
-y = df[target]
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_state=1, stratify=y)
-
-pred_label = MLPClassifier(random_state=0).fit(X_train, y_train).predict(X_test)
-
-
-print(classification_report(y_test, pred_label))
-
